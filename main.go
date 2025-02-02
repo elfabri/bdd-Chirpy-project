@@ -7,7 +7,7 @@ import (
 
 func main() {
     mux := http.NewServeMux()
-    server := http.Server{
+    server := &http.Server{
         Addr:       ":8080",
         Handler:    mux,
     }
