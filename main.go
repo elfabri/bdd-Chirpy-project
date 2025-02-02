@@ -12,6 +12,8 @@ func main() {
         Handler:    mux,
     }
 
+    mux.Handle("/", http.FileServer(http.Dir(".")))
+
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
     }
