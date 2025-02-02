@@ -5,6 +5,13 @@ import (
 	"net/http"
 )
 
+// readiness handler
+func readiness(resW http.ResponseWriter, req *http.Request) {
+    req.Header.Set("Content-Type", "application/json")
+    resW.WriteHeader(200)
+    resW.Write([]byte("OK"))
+}
+
 func main() {
     mux := http.NewServeMux()
     server := &http.Server{
@@ -12,7 +19,10 @@ func main() {
         Handler:    mux,
     }
 
-    mux.Handle("/", http.FileServer(http.Dir(".")))
+    // readiness endpoint
+    mux.HandleFunc("/healthz", readiness)
+
+    mux.Handle("/app/", http.StripPrefix("/app/", http.FileServer(http.Dir("."))))
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
 
     if err := server.ListenAndServe(); err != nil {
