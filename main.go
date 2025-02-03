@@ -33,8 +33,18 @@ func readiness(resW http.ResponseWriter, req *http.Request) {
 }
 
 // view count handler
-func (cfg *apiConfig) views(resW http.ResponseWriter, _ *http.Request) {
-    resW.Write([]byte(fmt.Sprintf("Hits: %d", cfg.fileserverHits.Load())))
+func (cfg *apiConfig) views(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "text/html")
+    content := fmt.Sprintf(`
+    <html>
+    <body>
+        <h1>Welcome, Chirpy Admin</h1>
+        <p>Chirpy has been visited %d times!</p>
+    </body>
+    </html>
+    `, cfg.fileserverHits.Load())
+
+    w.Write([]byte(content))
 }
 
 // view count reset
@@ -57,8 +67,8 @@ func main() {
     mux.HandleFunc("GET /api/healthz", readiness)
 
     // view couter show & reset
-    mux.HandleFunc("GET /api/metrics", apiCfg.views)
-    mux.HandleFunc("POST /api/reset", apiCfg.reset)
+    mux.HandleFunc("GET /admin/metrics", apiCfg.views)
+    mux.HandleFunc("POST /admin/reset", apiCfg.reset)
 
     mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
