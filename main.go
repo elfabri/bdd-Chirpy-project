@@ -54,11 +54,11 @@ func main() {
     handler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
 
     // readiness endpoint
-    mux.HandleFunc("GET /healthz", readiness)
+    mux.HandleFunc("GET /api/healthz", readiness)
 
     // view couter show & reset
-    mux.HandleFunc("GET /metrics", apiCfg.views)
-    mux.HandleFunc("POST /reset", apiCfg.reset)
+    mux.HandleFunc("GET /api/metrics", apiCfg.views)
+    mux.HandleFunc("POST /api/reset", apiCfg.reset)
 
     mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
