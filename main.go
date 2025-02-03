@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	// "structs"
 	"sync/atomic"
@@ -33,7 +34,22 @@ func readiness(resW http.ResponseWriter, req *http.Request) {
     resW.Write([]byte("OK"))
 }
 
+func cleanChirp(badChirp string, profaneW []string) string {
+    words := strings.Split(badChirp, " ")
+    for i, w := range words {
+        for _, pw := range profaneW {
+            if lower_w := strings.ToLower(w); lower_w == pw {
+                words[i] = "****"
+            }
+        }
+    }
+    return strings.Join(words, " ")
+}
+
+// validate length and censor profane words
 func validate_chirp(w http.ResponseWriter, r *http.Request) {
+    profaneW := []string{"kerfuffle", "sharbert", "fornax"}
+    
     type errors struct {
         Error string `json:"error"`
     }
@@ -75,19 +91,40 @@ func validate_chirp(w http.ResponseWriter, r *http.Request) {
 
     }
 
-    type returnVals struct {
-        Valid bool `json:"valid"`
+    // filter profane words
+    cleanedBdy := ""
+    lower_body := strings.ToLower(params.Body)
+    for _, pw := range profaneW {
+        if strings.Contains(lower_body, pw) {
+            // clean the profanity
+            // badChirp := strings.Split(params.Body, " ")
+            cleanedBdy = cleanChirp(params.Body, profaneW)
+            break
+        }
     }
 
-    respBody := returnVals{
-        Valid: true,
+    type returnVals struct {
+        CleanedBody string `json:"cleaned_body"`
+    }
+    respBody := returnVals {}
+
+    if cleanedBdy == "" {
+        // no profane words founded
+        respBody = returnVals{
+            CleanedBody: params.Body,
+        }
+
+    } else {
+        respBody = returnVals{
+            CleanedBody: cleanedBdy,
+        }
     }
 
     dat, err := json.Marshal(respBody)
 	if err != nil {
-			fmt.Printf("Error marshalling JSON: %s", err)
-			w.WriteHeader(500)
-			return
+        fmt.Printf("Error marshalling JSON: %s", err)
+        w.WriteHeader(500)
+        return
 	}
 
     w.Header().Set("Content-Type", "application/json")
