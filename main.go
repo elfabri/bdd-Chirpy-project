@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -30,6 +31,68 @@ func readiness(resW http.ResponseWriter, req *http.Request) {
     req.Header.Set("Content-Type", "application/json")
     resW.WriteHeader(200)
     resW.Write([]byte("OK"))
+}
+
+func validate_chirp(w http.ResponseWriter, r *http.Request) {
+    type errors struct {
+        Error string `json:"error"`
+    }
+
+    type parameters struct {
+        Body string `json:"body"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := parameters{}
+    err := decoder.Decode(&params)
+    if err != nil {
+        fmt.Printf("Error decoding parameters: %s", err)
+        w.WriteHeader(500)
+        respError := errors{
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    if len(params.Body) > 140 {
+        w.WriteHeader(400)
+        respError := errors{
+            Error: "Chirp is too long",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+
+    }
+
+    type returnVals struct {
+        Valid bool `json:"valid"`
+    }
+
+    respBody := returnVals{
+        Valid: true,
+    }
+
+    dat, err := json.Marshal(respBody)
+	if err != nil {
+			fmt.Printf("Error marshalling JSON: %s", err)
+			w.WriteHeader(500)
+			return
+	}
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(200)
+    w.Write(dat)
 }
 
 // view count handler
@@ -72,6 +135,9 @@ func main() {
 
     mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
+
+    // validate chirp
+    mux.HandleFunc("POST /api/validate_chirp", validate_chirp)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
