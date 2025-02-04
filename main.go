@@ -1,15 +1,18 @@
 package main
 
-import _ "github.com/lib/pq"
-
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
-
-	// "structs"
 	"sync/atomic"
+
+	"github.com/elfabri/bdd-Chirpy-project/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 // stateful handlers
@@ -18,6 +21,7 @@ type apiConfig struct {
     // and read an integer value
     // across multiple goroutines (HTTP requests)
 	fileserverHits atomic.Int32
+    dbQueries *database.Queries
 }
 
 // middleware to count views
@@ -155,12 +159,24 @@ func (cfg *apiConfig) reset(_ http.ResponseWriter, _ *http.Request) {
 }
 
 func main() {
+    godotenv.Load()
+    dbURL := os.Getenv("DB_URL")
+    db, err := sql.Open("postgres", dbURL)
+    if err != nil {
+        log.Fatal("Error loading .env file")
+    }
+
     mux := http.NewServeMux()
     server := &http.Server{
         Addr:       ":8080",
         Handler:    mux,
     }
-    apiCfg := apiConfig {fileserverHits: atomic.Int32{}}
+
+    dbQueries := database.New(db)
+    apiCfg := apiConfig {
+        fileserverHits: atomic.Int32{},
+        dbQueries: dbQueries,
+    }
 
     // handler main page
     handler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
