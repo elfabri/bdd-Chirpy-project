@@ -17,7 +17,7 @@ VALUES (
     NOW(),
     $1
 )
-RETURNING id, created_at, update_at, email
+RETURNING id, created_at, updated_at, email
 `
 
 func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
@@ -26,7 +26,7 @@ func (q *Queries) CreateUser(ctx context.Context, email string) (User, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
-		&i.UpdateAt,
+		&i.UpdatedAt,
 		&i.Email,
 	)
 	return i, err
