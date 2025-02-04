@@ -15,6 +15,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
+
 // stateful handlers
 type apiConfig struct {
     // atomic for safely increment
@@ -158,6 +159,41 @@ func (cfg *apiConfig) reset(_ http.ResponseWriter, _ *http.Request) {
     cfg.fileserverHits.Store(0)
 }
 
+// create user handler
+func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    type parameters struct{
+        Email string `json:"email"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := parameters{}
+    err := decoder.Decode(&params)
+    if err != nil {
+        log.Printf("Error creating user: %v\n", err)
+    }
+
+    if params.Email == "" {
+        log.Printf("invalid User email: %s\n", params.Email)
+    }
+
+    user := database.User{}
+    user, err = cfg.dbQueries.CreateUser(r.Context(), params.Email)
+    if err != nil {
+        log.Printf("Error creating user in db: %v\n", err)
+    }
+
+    userData, err := json.Marshal(user)
+    if err != nil {
+        log.Printf("Error marshalling user data: %v\n", err)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(201)
+    w.Write(userData)
+}
+
 func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
@@ -180,6 +216,7 @@ func main() {
 
     // handler main page
     handler := http.StripPrefix("/app/", http.FileServer(http.Dir(".")))
+    mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
 
     // readiness endpoint
     mux.HandleFunc("GET /api/healthz", readiness)
@@ -188,11 +225,13 @@ func main() {
     mux.HandleFunc("GET /admin/metrics", apiCfg.views)
     mux.HandleFunc("POST /admin/reset", apiCfg.reset)
 
-    mux.Handle("/app/", apiCfg.middlewareMetricsInc(handler))
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
 
     // validate chirp
     mux.HandleFunc("POST /api/validate_chirp", validate_chirp)
+
+    // create users
+    mux.HandleFunc("POST /api/users", apiCfg.create_user)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
