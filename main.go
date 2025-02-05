@@ -11,10 +11,12 @@ import (
 	"sync/atomic"
 
 	"github.com/elfabri/bdd-Chirpy-project/internal/database"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
+var userID1 string
 
 // stateful handlers
 type apiConfig struct {
@@ -23,6 +25,7 @@ type apiConfig struct {
     // across multiple goroutines (HTTP requests)
 	fileserverHits atomic.Int32
     dbQueries *database.Queries
+    platform string
 }
 
 // middleware to count views
@@ -53,90 +56,41 @@ func cleanChirp(badChirp string, profaneW []string) string {
     return strings.Join(words, " ")
 }
 
+type chirpError struct {
+    e error
+    num uint8
+}
+
 // validate length and censor profane words
-func validate_chirp(w http.ResponseWriter, r *http.Request) {
+func validate_chirp(sus_chirp string) (string, chirpError) {
     profaneW := []string{"kerfuffle", "sharbert", "fornax"}
-    
-    type errors struct {
-        Error string `json:"error"`
+
+    if sus_chirp == "" {
+        return "", chirpError{nil, 1}
     }
 
-    type parameters struct {
-        Body string `json:"body"`
-    }
-
-    decoder := json.NewDecoder(r.Body)
-    params := parameters{}
-    err := decoder.Decode(&params)
-    if err != nil {
-        fmt.Printf("Error decoding parameters: %s", err)
-        w.WriteHeader(500)
-        respError := errors{
-            Error: "Something went wrong",
-        }
-        encodedError, err := json.Marshal(respError)
-        if err != nil {
-            fmt.Printf("Error encoding Error JSON: %s", err)
-            return
-        }
-        w.Write(encodedError)
-        return
-    }
-
-    if len(params.Body) > 140 {
-        w.WriteHeader(400)
-        respError := errors{
-            Error: "Chirp is too long",
-        }
-        encodedError, err := json.Marshal(respError)
-        if err != nil {
-            fmt.Printf("Error encoding Error JSON: %s", err)
-            return
-        }
-        w.Write(encodedError)
-        return
-
+    if len(sus_chirp) > 140 {
+        return "", chirpError{nil, 2}
     }
 
     // filter profane words
     cleanedBdy := ""
-    lower_body := strings.ToLower(params.Body)
+    lower_body := strings.ToLower(sus_chirp)
     for _, pw := range profaneW {
         if strings.Contains(lower_body, pw) {
             // clean the profanity
-            // badChirp := strings.Split(params.Body, " ")
-            cleanedBdy = cleanChirp(params.Body, profaneW)
+            cleanedBdy = cleanChirp(sus_chirp, profaneW)
             break
         }
     }
 
-    type returnVals struct {
-        CleanedBody string `json:"cleaned_body"`
-    }
-    respBody := returnVals {}
-
     if cleanedBdy == "" {
         // no profane words founded
-        respBody = returnVals{
-            CleanedBody: params.Body,
-        }
-
-    } else {
-        respBody = returnVals{
-            CleanedBody: cleanedBdy,
-        }
+        return sus_chirp, chirpError{nil, 0}
     }
 
-    dat, err := json.Marshal(respBody)
-	if err != nil {
-        fmt.Printf("Error marshalling JSON: %s", err)
-        w.WriteHeader(500)
-        return
-	}
+    return cleanedBdy, chirpError{nil, 0}
 
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(200)
-    w.Write(dat)
 }
 
 // view count handler
@@ -155,8 +109,20 @@ func (cfg *apiConfig) views(w http.ResponseWriter, r *http.Request) {
 }
 
 // view count reset
-func (cfg *apiConfig) reset(_ http.ResponseWriter, _ *http.Request) {
+func (cfg *apiConfig) reset(w http.ResponseWriter, r *http.Request) {
     cfg.fileserverHits.Store(0)
+    if cfg.platform != "dev" {
+        http.Error(w, "Forbidden", http.StatusForbidden)
+        return
+    }
+
+    err := cfg.dbQueries.DeleteAllUsers(r.Context())
+    if err != nil {
+        http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+        return
+    }
+
+    w.WriteHeader(http.StatusOK)
 }
 
 // create user handler
@@ -184,6 +150,9 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
         log.Printf("Error creating user in db: %v\n", err)
     }
 
+    // save first userID to use on the create_chirp
+    userID1 = fmt.Sprintf("%v", user.ID)
+
     userData, err := json.Marshal(user)
     if err != nil {
         log.Printf("Error marshalling user data: %v\n", err)
@@ -192,6 +161,102 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(201)
     w.Write(userData)
+}
+
+func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    type chirpRequest struct {
+        Body   string    `json:"body"`
+        UserID string `json:"user_id"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := chirpRequest{}
+    err := decoder.Decode(&params)
+
+    type errors struct {
+        Error string `json:"error"`
+    }
+
+    if err != nil {
+        log.Printf("Error decoding parameters: %s", err)
+        w.WriteHeader(500)
+        respError := errors{
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    if params.UserID == "${userID1}" {
+        params.UserID = userID1
+    }
+
+    // validate chirp
+    validChirp, chirpError := validate_chirp(params.Body)
+    if chirpError.num != 0 {
+        switch chirpError.num {
+        case 1:
+            // nil chirp error
+            log.Println("error, chirp can not be null")
+            w.WriteHeader(400)
+            respError := errors {
+                Error: "Chirp is null",
+            }
+            encodedError, err := json.Marshal(respError)
+            if err != nil {
+                fmt.Printf("Error encoding Error JSON: %s", err)
+                return
+            }
+            w.Write(encodedError)
+            return
+        case 2:
+            // too long (>140) chirp error
+            w.WriteHeader(400)
+            respError := errors{
+                Error: "Chirp is too long",
+            }
+            encodedError, err := json.Marshal(respError)
+            if err != nil {
+                fmt.Printf("Error encoding Error JSON: %s", err)
+                return
+            }
+            w.Write(encodedError)
+            return
+        }
+    }
+
+    params.Body = validChirp
+    userID, err := uuid.Parse(params.UserID)
+    if err != nil {
+        log.Printf("Error parsing user ID: %v\n", err)
+    }
+    chirp := database.Chirp{}
+    chirp, err = cfg.dbQueries.CreateChirp(
+        r.Context(),
+        database.CreateChirpParams{
+            Body: params.Body,
+            UserID: userID,
+        },
+    )
+    if err != nil {
+        log.Printf("Error creating chirp in db: %v\n", err)
+    }
+
+    chirpData, err := json.Marshal(chirp)
+    if err != nil {
+        log.Printf("Error marshalling chirp data: %v\n", err)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(201)
+    w.Write(chirpData)
 }
 
 func main() {
@@ -212,6 +277,7 @@ func main() {
     apiCfg := apiConfig {
         fileserverHits: atomic.Int32{},
         dbQueries: dbQueries,
+        platform: os.Getenv("PLATFORM"),
     }
 
     // handler main page
@@ -227,11 +293,11 @@ func main() {
 
     mux.Handle("/assets", http.FileServer(http.Dir("./assets/logo.png")))
 
-    // validate chirp
-    mux.HandleFunc("POST /api/validate_chirp", validate_chirp)
-
     // create users
     mux.HandleFunc("POST /api/users", apiCfg.create_user)
+
+    // create chirps
+    mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
