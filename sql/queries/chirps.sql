@@ -11,3 +11,6 @@ RETURNING *;
 
 -- name: ShowChirp :many
 SELECT * FROM chirps ORDER BY created_at;
+
+-- name: ShowChirpByID :one
+SELECT * FROM chirps WHERE id = $1;

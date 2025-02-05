@@ -16,7 +16,11 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// bootdotdev gives me a request with placeholders
+// and I don't know how to deal with them, other than this
+// send help
 var userID1 string
+var chirpID1 string
 
 // stateful handlers
 type apiConfig struct {
@@ -249,6 +253,9 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
         log.Printf("Error creating chirp in db: %v\n", err)
     }
 
+    // this shouldn't be, I think
+    chirpID1 = fmt.Sprintf("%v", chirp.ID)
+
     chirpData, err := json.Marshal(chirp)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
@@ -265,6 +272,31 @@ func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
     chirps, err := cfg.dbQueries.ShowChirp( r.Context() )
 
     chirpData, err := json.Marshal(chirps)
+    if err != nil {
+        log.Printf("Error marshalling chirp data: %v\n", err)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(200)
+    w.Write(chirpData)
+}
+
+// show specific chirp
+func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
+    chirpID := r.PathValue("chirpID")
+
+    // I dont really know how to deal with this
+    if chirpID == "${chirpID1}" {
+        chirpID = chirpID1
+    }
+
+    chirpUUID, err := uuid.Parse(chirpID)
+    if err != nil {
+        log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
+    }
+
+    chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
+    chirpData, err := json.Marshal(chirp)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
     }
@@ -316,6 +348,9 @@ func main() {
 
     // show all chirps
     mux.HandleFunc("GET /api/chirps", apiCfg.show_chirps)
+
+    // show specific chirp by id
+    mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.show_chirp_by_id)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
