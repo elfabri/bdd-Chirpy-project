@@ -260,7 +260,7 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
 }
 
 // show all chirps ordered by created_at
-func (cfg *apiConfig) show_chirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
 
     chirps, err := cfg.dbQueries.ShowChirp( r.Context() )
 
@@ -315,7 +315,7 @@ func main() {
     mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
 
     // show all chirps
-    mux.HandleFunc("GET /api/chirps", apiCfg.show_chirp)
+    mux.HandleFunc("GET /api/chirps", apiCfg.show_chirps)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
