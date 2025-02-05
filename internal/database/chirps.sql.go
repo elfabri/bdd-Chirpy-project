@@ -40,3 +40,36 @@ func (q *Queries) CreateChirp(ctx context.Context, arg CreateChirpParams) (Chirp
 	)
 	return i, err
 }
+
+const showChirp = `-- name: ShowChirp :many
+SELECT id, created_at, updated_at, body, user_id FROM chirps ORDER BY created_at
+`
+
+func (q *Queries) ShowChirp(ctx context.Context) ([]Chirp, error) {
+	rows, err := q.db.QueryContext(ctx, showChirp)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Chirp
+	for rows.Next() {
+		var i Chirp
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Body,
+			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

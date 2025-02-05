@@ -259,6 +259,21 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     w.Write(chirpData)
 }
 
+// show all chirps ordered by created_at
+func (cfg *apiConfig) show_chirp(w http.ResponseWriter, r *http.Request) {
+
+    chirps, err := cfg.dbQueries.ShowChirp( r.Context() )
+
+    chirpData, err := json.Marshal(chirps)
+    if err != nil {
+        log.Printf("Error marshalling chirp data: %v\n", err)
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(200)
+    w.Write(chirpData)
+}
+
 func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
@@ -298,6 +313,9 @@ func main() {
 
     // create chirps
     mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
+
+    // show all chirps
+    mux.HandleFunc("GET /api/chirps", apiCfg.show_chirp)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
