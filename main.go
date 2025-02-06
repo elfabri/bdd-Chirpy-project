@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/elfabri/bdd-Chirpy-project/internal/auth"
 	"github.com/elfabri/bdd-Chirpy-project/internal/database"
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -135,6 +136,7 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
 
     type parameters struct{
         Email string `json:"email"`
+        Password string `json:"password"`
     }
 
     decoder := json.NewDecoder(r.Body)
@@ -148,8 +150,17 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
         log.Printf("invalid User email: %s\n", params.Email)
     }
 
+    hashedPassw, err := auth.HahsPassword(params.Password)
+    if err != nil {
+        log.Printf("error hashing the user's password: %s\n", params.Email)
+    }
+    userParams := database.CreateUserParams{
+        Email: params.Email,
+        HashedPassword: hashedPassw,
+    }
+
     user := database.User{}
-    user, err = cfg.dbQueries.CreateUser(r.Context(), params.Email)
+    user, err = cfg.dbQueries.CreateUser(r.Context(), userParams)
     if err != nil {
         log.Printf("Error creating user in db: %v\n", err)
     }
@@ -157,14 +168,102 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
     // save first userID to use on the create_chirp
     userID1 = fmt.Sprintf("%v", user.ID)
 
-    userData, err := json.Marshal(user)
-    if err != nil {
-        log.Printf("Error marshalling user data: %v\n", err)
+    type userRes struct {
+        Id string `json:"id"`
+        CreatedAt string `json:"created_at"`
+        UpdatedAt string `json:"updated_at"`
+        Email string `json:"email"`
     }
 
-    w.Header().Set("Content-Type", "application/json")
-    w.WriteHeader(201)
-    w.Write(userData)
+    userR := userRes {
+        Id: user.ID.String(),
+        CreatedAt: user.CreatedAt.String(),
+        UpdatedAt: user.UpdatedAt.String(),
+        Email: user.Email,
+    }
+
+    w.WriteHeader(200)
+    encodedUserRes, err := json.Marshal(userR)
+    if err != nil {
+        log.Printf("error marshalling user response: %v", err)
+    }
+    w.Write(encodedUserRes)
+}
+
+// login handler
+func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    type parameters struct{
+        Email string `json:"email"`
+        Password string `json:"password"`
+    }
+
+    type errors struct {
+        Error string `json:"error"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := parameters{}
+    err := decoder.Decode(&params)
+    if err != nil {
+        log.Printf("Error while user's login: %v\n", err)
+    }
+
+    // user lookup
+    user, err := cfg.dbQueries.ShowUserByEmail(r.Context(), params.Email)
+    if err != nil {
+        log.Printf("Error while searching user with email: %s, error %v\n", params.Email, err)
+        w.WriteHeader(401)
+        respError := errors{
+            Error: "Incorrect email or password",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            log.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    // passw comparison
+    err = auth.CheckPasswordHash(user.HashedPassword, params.Password)
+    if err != nil {
+        log.Printf("Error while authenticating user with email: %s, error %v\n", params.Email, err)
+        w.WriteHeader(401)
+        respError := errors{
+            Error: "Incorrect email or password",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            log.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    type userRes struct {
+        Id string `json:"id"`
+        CreatedAt string `json:"created_at"`
+        UpdatedAt string `json:"updated_at"`
+        Email string `json:"email"`
+    }
+
+    userR := userRes {
+        Id: user.ID.String(),
+        CreatedAt: user.CreatedAt.String(),
+        UpdatedAt: user.UpdatedAt.String(),
+        Email: user.Email,
+    }
+
+    w.WriteHeader(200)
+    encodedUserRes, err := json.Marshal(userR)
+    if err != nil {
+        log.Printf("error marshalling user response: %v", err)
+    }
+    w.Write(encodedUserRes)
 }
 
 func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
@@ -342,6 +441,9 @@ func main() {
 
     // create users
     mux.HandleFunc("POST /api/users", apiCfg.create_user)
+
+    // login user
+    mux.HandleFunc("POST /api/login", apiCfg.login_user)
 
     // create chirps
     mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
