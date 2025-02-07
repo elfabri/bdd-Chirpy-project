@@ -8,6 +8,7 @@ and JWTs signed with the wrong secret are rejected
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestJWT(t *testing.T) {
 
     passCount := 0
     failCount := 0
-    tokenSecret := "HS256"
+    tokenSecret := os.Getenv("SECRET")
 
     fmt.Print("\t-\tRunning validation test\n")
     for _, test := range tests {
