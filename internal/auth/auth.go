@@ -24,7 +24,6 @@ func CheckPasswordHash(password, hash string) error {
 
 func GetBearerToken(headers http.Header) (string, error) {
     info := headers.Get("Authorization")
-    fmt.Printf("uwu info: %s\n", info)
     if info == "" {
         return "", fmt.Errorf("Couldn't get Authorization")
     }

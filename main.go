@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/elfabri/bdd-Chirpy-project/internal/auth"
 	"github.com/elfabri/bdd-Chirpy-project/internal/database"
@@ -31,6 +32,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
     dbQueries *database.Queries
     platform string
+    secret string
 }
 
 // middleware to count views
@@ -182,7 +184,7 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
         Email: user.Email,
     }
 
-    w.WriteHeader(200)
+    w.WriteHeader(201)
     encodedUserRes, err := json.Marshal(userR)
     if err != nil {
         log.Printf("error marshalling user response: %v", err)
@@ -197,6 +199,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     type parameters struct{
         Email string `json:"email"`
         Password string `json:"password"`
+        ExpiresInSeconds int `json:"expires_in_seconds"`
     }
 
     type errors struct {
@@ -208,6 +211,11 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     err := decoder.Decode(&params)
     if err != nil {
         log.Printf("Error while user's login: %v\n", err)
+    }
+
+    // default expiration if not given or less than an hour
+    if exp := params.ExpiresInSeconds; exp > 3600 || exp <= 0{
+        params.ExpiresInSeconds = 3600
     }
 
     // user lookup
@@ -244,11 +252,19 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // token gen for authentication
+    token, err := auth.MakeJWT(
+        user.ID,
+        cfg.secret,
+        time.Second * time.Duration(params.ExpiresInSeconds),
+    )
+
     type userRes struct {
         Id string `json:"id"`
         CreatedAt string `json:"created_at"`
         UpdatedAt string `json:"updated_at"`
         Email string `json:"email"`
+        Token string `json:"token"`
     }
 
     userR := userRes {
@@ -256,6 +272,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         CreatedAt: user.CreatedAt.String(),
         UpdatedAt: user.UpdatedAt.String(),
         Email: user.Email,
+        Token: token,
     }
 
     w.WriteHeader(200)
@@ -269,6 +286,26 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     r.Header.Set("Content-Type", "application/json")
 
+    type errors struct {
+        Error string `json:"error"`
+    }
+
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        log.Printf("Error getting token from bearer: %s", err)
+        w.WriteHeader(401)
+        respError := errors {
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
     type chirpRequest struct {
         Body   string    `json:"body"`
         UserID string `json:"user_id"`
@@ -276,11 +313,7 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
 
     decoder := json.NewDecoder(r.Body)
     params := chirpRequest{}
-    err := decoder.Decode(&params)
-
-    type errors struct {
-        Error string `json:"error"`
-    }
+    err = decoder.Decode(&params)
 
     if err != nil {
         log.Printf("Error decoding parameters: %s", err)
@@ -297,9 +330,28 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // user verification with jwt
+    userID, err := auth.ValidateJWT(token, cfg.secret)
+    if err != nil {
+        log.Printf("Error validating token from user: %s", err)
+        w.WriteHeader(401)
+        respError := errors {
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    /*
     if params.UserID == "${userID1}" {
         params.UserID = userID1
     }
+    */
 
     // validate chirp
     validChirp, chirpError := validate_chirp(params.Body)
@@ -336,10 +388,12 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     }
 
     params.Body = validChirp
+    /*
     userID, err := uuid.Parse(params.UserID)
     if err != nil {
         log.Printf("Error parsing user ID: %v\n", err)
     }
+    */
     chirp := database.Chirp{}
     chirp, err = cfg.dbQueries.CreateChirp(
         r.Context(),
@@ -424,6 +478,7 @@ func main() {
         fileserverHits: atomic.Int32{},
         dbQueries: dbQueries,
         platform: os.Getenv("PLATFORM"),
+        secret: os.Getenv("SECRET"),
     }
 
     // handler main page
