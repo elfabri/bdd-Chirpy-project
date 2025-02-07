@@ -2,6 +2,9 @@ package auth
 
 import (
 	"log"
+	"fmt"
+	"net/http"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,4 +20,19 @@ func HahsPassword(passw string) (string, error) {
 
 func CheckPasswordHash(password, hash string) error {
     return bcrypt.CompareHashAndPassword(([]byte)(password), ([]byte)(hash))
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+    info := headers.Get("Authorization")
+    fmt.Printf("uwu info: %s\n", info)
+    if info == "" {
+        return "", fmt.Errorf("Couldn't get Authorization")
+    }
+
+    infoParts := strings.Split(info, " ")
+    if infoParts[0] != "Bearer" {
+        return "", fmt.Errorf("Couldn't get Authorization")
+    }
+
+    return infoParts[1], nil
 }
