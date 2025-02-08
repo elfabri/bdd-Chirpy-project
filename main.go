@@ -18,12 +18,6 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// bootdotdev gives me a request with placeholders
-// and I don't know how to deal with them, other than this
-// send help
-var userID1 string
-var chirpID1 string
-
 // stateful handlers
 type apiConfig struct {
     // atomic for safely increment
@@ -170,9 +164,6 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Printf("Error creating user in db: %v\n", err)
     }
-
-    // save first userID to use on the create_chirp
-    userID1 = fmt.Sprintf("%v", user.ID)
 
     type userRes struct {
         Id string `json:"id"`
@@ -439,12 +430,6 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    /*
-    if params.UserID == "${userID1}" {
-        params.UserID = userID1
-    }
-    */
-
     // validate chirp
     validChirp, chirpError := validate_chirp(params.Body)
     if chirpError.num != 0 {
@@ -480,12 +465,6 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     }
 
     params.Body = validChirp
-    /*
-    userID, err := uuid.Parse(params.UserID)
-    if err != nil {
-        log.Printf("Error parsing user ID: %v\n", err)
-    }
-    */
     chirp := database.Chirp{}
     chirp, err = cfg.dbQueries.CreateChirp(
         r.Context(),
@@ -497,9 +476,6 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Printf("Error creating chirp in db: %v\n", err)
     }
-
-    // this shouldn't be, I think
-    chirpID1 = fmt.Sprintf("%v", chirp.ID)
 
     chirpData, err := json.Marshal(chirp)
     if err != nil {
@@ -529,11 +505,6 @@ func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
 // show specific chirp
 func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
     chirpID := r.PathValue("chirpID")
-
-    // I dont really know how to deal with this
-    if chirpID == "${chirpID1}" {
-        chirpID = chirpID1
-    }
 
     chirpUUID, err := uuid.Parse(chirpID)
     if err != nil {
