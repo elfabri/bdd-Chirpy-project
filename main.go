@@ -35,6 +35,10 @@ type apiConfig struct {
     secret string
 }
 
+type errors struct {
+    Error string `json:"error"`
+}
+
 // middleware to count views
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
@@ -199,11 +203,6 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     type parameters struct{
         Email string `json:"email"`
         Password string `json:"password"`
-        ExpiresInSeconds int `json:"expires_in_seconds"`
-    }
-
-    type errors struct {
-        Error string `json:"error"`
     }
 
     decoder := json.NewDecoder(r.Body)
@@ -211,11 +210,6 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     err := decoder.Decode(&params)
     if err != nil {
         log.Printf("Error while user's login: %v\n", err)
-    }
-
-    // default expiration if not given or less than an hour
-    if exp := params.ExpiresInSeconds; exp > 3600 || exp <= 0{
-        params.ExpiresInSeconds = 3600
     }
 
     // user lookup
@@ -256,8 +250,33 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     token, err := auth.MakeJWT(
         user.ID,
         cfg.secret,
-        time.Second * time.Duration(params.ExpiresInSeconds),
+        time.Hour,
     )
+    if err != nil {
+        log.Printf("Generation of jwt token failed: %s\n", err)
+        return
+    }
+
+    // refresh token gen
+    r_token, err := auth.MakeRefreshToken()
+    if err != nil {
+        log.Printf("Generation of refresh token failed: %s\n", err)
+        return
+    }
+
+    // refresh_token stored in db, expires in 60 days
+    userRTParams := database.InsertRTokenParams{
+        Token: r_token,
+        UserID: user.ID,
+        ExpiresAt: time.Now().Add(time.Hour * 24 * 60),
+
+    }
+
+    _, err = cfg.dbQueries.InsertRToken(r.Context(),userRTParams)
+    if err != nil {
+        log.Printf("Error while inserting refresh token into db: %s\n", err)
+        return
+    }
 
     type userRes struct {
         Id string `json:"id"`
@@ -265,6 +284,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         UpdatedAt string `json:"updated_at"`
         Email string `json:"email"`
         Token string `json:"token"`
+        Ref_Token string `json:"refresh_token"`
     }
 
     userR := userRes {
@@ -273,6 +293,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         UpdatedAt: user.UpdatedAt.String(),
         Email: user.Email,
         Token: token,
+        Ref_Token: r_token,
     }
 
     w.WriteHeader(200)
@@ -283,12 +304,83 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     w.Write(encodedUserRes)
 }
 
+// check refresh token from db
+// does not accept a request body, but does require
+// a refresh token to be present in the headers
+// return a jwt token
+func (cfg *apiConfig) check_ref_tok(w http.ResponseWriter, r *http.Request) {
+    rtok, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        log.Printf("error while getting user token: %v\n", err)
+        w.WriteHeader(401)
+        return
+    }
+
+    // search the token in db refresh_token
+    // check existance, expireDate and if it was revoked
+    rT, err := cfg.dbQueries.GetUserFromRToken(r.Context(), rtok)
+    if err != nil {
+        log.Printf("Error while getting user with refresh_token, error: %v\n", err)
+        w.WriteHeader(401)
+        return
+    }
+    if rT.ExpiresAt.Before(time.Now()) {
+        log.Printf("Token has already expired\n")
+        w.WriteHeader(401)
+        return
+    }
+    if rT.RevokedAt.Valid {
+        log.Printf("Token has been revoked\n")
+        w.WriteHeader(401)
+        return
+    }
+
+    // token gen for authentication
+    jwt, err := auth.MakeJWT(
+        rT.UserID,
+        cfg.secret,
+        time.Hour,
+    )
+
+    if err != nil {
+        log.Printf("Generation of jwt token failed: %s\n", err)
+        return
+    }
+    type validRToken struct {
+        Token string `json:"token"`
+    }
+
+    valid := validRToken{
+        Token: jwt,
+    }
+    
+    encodedValidRes, err := json.Marshal(valid)
+    if err != nil {
+        log.Printf("error marshalling refresh token: %v\n", err)
+        return
+    }
+    w.WriteHeader(200)
+    w.Write(encodedValidRes)
+}
+
+// revoke refresh token
+func (cfg *apiConfig) revoke_ref_tok(w http.ResponseWriter, r *http.Request) {
+    tok, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        log.Printf("error while getting user token: %v\n", err)
+        return
+    }
+    err = cfg.dbQueries.RevokeRToken(r.Context(), tok)
+    if err != nil {
+        log.Printf("error while revoking user token: %v\n", err)
+        return 
+    }
+    w.WriteHeader(204)
+}
+
+// create chirp
 func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     r.Header.Set("Content-Type", "application/json")
-
-    type errors struct {
-        Error string `json:"error"`
-    }
 
     token, err := auth.GetBearerToken(r.Header)
     if err != nil {
@@ -499,6 +591,12 @@ func main() {
 
     // login user
     mux.HandleFunc("POST /api/login", apiCfg.login_user)
+
+    // refresh_token lookup
+    mux.HandleFunc("POST /api/refresh", apiCfg.check_ref_tok)
+
+    // revoke refresh_token
+    mux.HandleFunc("POST /api/revoke", apiCfg.revoke_ref_tok)
 
     // create chirps
     mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
