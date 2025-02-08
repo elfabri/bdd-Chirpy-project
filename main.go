@@ -30,6 +30,7 @@ type apiConfig struct {
     dbQueries *database.Queries
     platform string
     secret string
+    polka_key string
 }
 
 type errors struct {
@@ -414,8 +415,8 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(500)
         return
     }
-    w.Write(encodedUserRes)
     w.WriteHeader(200)
+    w.Write(encodedUserRes)
 }
 
 // check refresh token from db
@@ -730,6 +731,19 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
 func (cfg *apiConfig) upgrade_user(w http.ResponseWriter, r *http.Request) {
     r.Header.Set("Content-Type", "application/json")
 
+    apiKey, err := auth.GetAPIKey(r.Header)
+    if err != nil {
+        log.Printf("error while getting api key: %v\n", err)
+        w.WriteHeader(401)
+        return
+    }
+
+    if apiKey != cfg.polka_key {
+        log.Print("Wrong Api Key to upgrade user\n")
+        w.WriteHeader(401)
+        return
+    }
+
     type dataParams struct {
         UserID string `json:"user_id"`
     }
@@ -741,7 +755,7 @@ func (cfg *apiConfig) upgrade_user(w http.ResponseWriter, r *http.Request) {
 
     decoder := json.NewDecoder(r.Body)
     params := upgradeParams{}
-    err := decoder.Decode(&params)
+    err = decoder.Decode(&params)
     if err != nil {
         log.Printf("Error while decoding params to upgrade user: %v\n", err)
         w.WriteHeader(500)
@@ -792,6 +806,7 @@ func main() {
         dbQueries: dbQueries,
         platform: os.Getenv("PLATFORM"),
         secret: os.Getenv("SECRET"),
+        polka_key: os.Getenv("POLKA_KEY"),
     }
 
     // handler main page
