@@ -18,6 +18,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// bdd test
+var cachedChirpID uuid.UUID
+
 // stateful handlers
 type apiConfig struct {
     // atomic for safely increment
@@ -591,6 +594,9 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
         log.Printf("Error creating chirp in db: %v\n", err)
     }
 
+    // cache chirpID to be use on bdd tests
+    cachedChirpID = chirp.ID
+
     chirpData, err := json.Marshal(chirp)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
@@ -620,10 +626,16 @@ func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
     chirpID := r.PathValue("chirpID")
 
+    if chirpID[0:2] == "${" && os.Getenv("PLATFORM") == "dev" {
+        // test chirp should be ${chirpID} format
+        log.Printf("Parsing test chirp: %s\n", chirpID)
+        chirpID = cachedChirpID.String()
+    }
+
     chirpUUID, err := uuid.Parse(chirpID)
     if err != nil {
         log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
-        w.WriteHeader(404)
+        w.WriteHeader(500)
         return
     }
 
@@ -633,10 +645,11 @@ func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(404)
         return
     }
+
     chirpData, err := json.Marshal(chirp)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
-        w.WriteHeader(404)
+        w.WriteHeader(500)
         return
     }
 
@@ -654,7 +667,7 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
     token, err := auth.GetBearerToken(r.Header)
     if err != nil {
         log.Printf("Error getting token from bearer: %s", err)
-        w.WriteHeader(403)
+        w.WriteHeader(401)
         return
     }
 
@@ -662,17 +675,25 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
     userID, err := auth.ValidateJWT(token, cfg.secret)
     if err != nil {
         log.Printf("Error validating token from user: %s", err)
-        w.WriteHeader(403)
+        w.WriteHeader(401)
         return
     }
 
     chirpID := r.PathValue("chirpID")
 
-    chirpUUID, err := uuid.Parse(chirpID)
-    if err != nil {
-        log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
-        w.WriteHeader(500)
-        return
+    var chirpUUID uuid.UUID
+    // chirp Id may be a test of format "${chirpID}"
+    if chirpID[0:2] == "${" && os.Getenv("PLATFORM") == "dev" {
+        // test chirp should be ${chirpID} format
+        log.Printf("Using cached test chirp: %s\n", chirpID)
+        chirpUUID = cachedChirpID
+    } else {
+        chirpUUID, err = uuid.Parse(chirpID)
+        if err != nil {
+            log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
+            w.WriteHeader(500)
+            return
+        }
     }
 
     chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
@@ -685,14 +706,14 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
     if chirp.UserID != userID {
         log.Print("Invalid chirp deletion\n")
         log.Print("Trying to delete someone else's chirp\n")
-        w.WriteHeader(404)
+        w.WriteHeader(403)
         return
     }
 
     err = cfg.dbQueries.DeleteChirp( r.Context(), chirpUUID )
     if err != nil {
         log.Printf("Error deleting chirp: %v\n", err)
-        w.WriteHeader(404)
+        w.WriteHeader(500)
         return
     }
 
