@@ -623,17 +623,80 @@ func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
     chirpUUID, err := uuid.Parse(chirpID)
     if err != nil {
         log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
+        w.WriteHeader(404)
+        return
     }
 
     chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
+    if err != nil {
+        log.Printf("Error searching for chirp: %v\n", err)
+        w.WriteHeader(404)
+        return
+    }
     chirpData, err := json.Marshal(chirp)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
+        w.WriteHeader(404)
+        return
     }
 
     w.Header().Set("Content-Type", "application/json")
     w.WriteHeader(200)
     w.Write(chirpData)
+}
+
+// delete specific chirp
+// can only delete users' own chirps
+// user's validation on req.header
+func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        log.Printf("Error getting token from bearer: %s", err)
+        w.WriteHeader(403)
+        return
+    }
+
+    // user verification with jwt
+    userID, err := auth.ValidateJWT(token, cfg.secret)
+    if err != nil {
+        log.Printf("Error validating token from user: %s", err)
+        w.WriteHeader(403)
+        return
+    }
+
+    chirpID := r.PathValue("chirpID")
+
+    chirpUUID, err := uuid.Parse(chirpID)
+    if err != nil {
+        log.Printf("Error parsing chirp uuid: %s;\n - error: %v\n", chirpID,  err)
+        w.WriteHeader(500)
+        return
+    }
+
+    chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
+    if err != nil {
+        log.Printf("Error searching for chirp: %v\n", err)
+        w.WriteHeader(404)
+        return
+    }
+
+    if chirp.UserID != userID {
+        log.Print("Invalid chirp deletion\n")
+        log.Print("Trying to delete someone else's chirp\n")
+        w.WriteHeader(404)
+        return
+    }
+
+    err = cfg.dbQueries.DeleteChirp( r.Context(), chirpUUID )
+    if err != nil {
+        log.Printf("Error deleting chirp: %v\n", err)
+        w.WriteHeader(404)
+        return
+    }
+
+    w.WriteHeader(204)
 }
 
 func main() {
@@ -694,6 +757,9 @@ func main() {
 
     // show specific chirp by id
     mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.show_chirp_by_id)
+
+    // delete specific chirp by id
+    mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.delete_chirp_by_id)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
