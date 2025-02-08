@@ -187,6 +187,120 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
     w.Write(encodedUserRes)
 }
 
+// update user's email and password
+// requires access token in the header
+// new passw and email in the body
+func (cfg *apiConfig) update_user(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    token, err := auth.GetBearerToken(r.Header)
+    if err != nil {
+        log.Printf("Error getting token from bearer: %s", err)
+        w.WriteHeader(401)
+        respError := errors {
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    // user verification with jwt
+    userID, err := auth.ValidateJWT(token, cfg.secret)
+    if err != nil {
+        log.Printf("Error, invalid refresh token: %s\n", err)
+        w.WriteHeader(401)
+        respError := errors {
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s\n", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    // get new email and passw from request body
+    type parameters struct{
+        Email string `json:"email"`
+        Password string `json:"password"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := parameters{}
+    err = decoder.Decode(&params)
+    if err != nil {
+        log.Printf("Error decoding user's login info: %v\n", err)
+        w.WriteHeader(401)
+        return
+    }
+
+    hashedPassw, err := auth.HahsPassword(params.Password)
+    if err != nil {
+        log.Printf("error hashing the user's password: %s\n", params.Email)
+        w.WriteHeader(401)
+        return
+    }
+
+    updateUserParams := database.UpdateUserParams {
+        ID: userID,
+        Email: params.Email,
+        HashedPassword: hashedPassw,
+    }
+
+    err = cfg.dbQueries.UpdateUser(r.Context(), updateUserParams)
+    if err != nil {
+        log.Printf("Error updating user in db: %v\n", err)
+        w.WriteHeader(401)
+        return
+    }
+
+    // get user with userID
+    userUpdated, err := cfg.dbQueries.GetUserByID(r.Context(), userID)
+    if err != nil {
+        log.Printf("Error, couldn't find user after update: %s\n", err)
+        w.WriteHeader(401)
+        respError := errors {
+            Error: "Something went wrong",
+        }
+        encodedError, err := json.Marshal(respError)
+        if err != nil {
+            fmt.Printf("Error encoding Error JSON: %s\n", err)
+            return
+        }
+        w.Write(encodedError)
+        return
+    }
+
+    // return user updated
+    type userRes struct {
+        Id string `json:"id"`
+        CreatedAt string `json:"created_at"`
+        UpdatedAt string `json:"updated_at"`
+        Email string `json:"email"`
+    }
+
+    userR := userRes {
+        Id: userUpdated.ID.String(),
+        CreatedAt: userUpdated.CreatedAt.String(),
+        UpdatedAt: userUpdated.UpdatedAt.String(),
+        Email: userUpdated.Email,
+    }
+
+    encodedUserRes, err := json.Marshal(userR)
+    if err != nil {
+        log.Printf("error marshalling user response: %v", err)
+    }
+    w.Write(encodedUserRes)
+    w.WriteHeader(200)
+}
+
 // login handler
 func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     r.Header.Set("Content-Type", "application/json")
@@ -559,6 +673,9 @@ func main() {
 
     // create users
     mux.HandleFunc("POST /api/users", apiCfg.create_user)
+
+    // update users emails and/or passwords
+    mux.HandleFunc("PUT /api/users", apiCfg.update_user)
 
     // login user
     mux.HandleFunc("POST /api/login", apiCfg.login_user)
