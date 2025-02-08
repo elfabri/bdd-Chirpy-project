@@ -173,6 +173,7 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
         CreatedAt string `json:"created_at"`
         UpdatedAt string `json:"updated_at"`
         Email string `json:"email"`
+        IsChirpyRed bool `json:"is_chirpy_red"`
     }
 
     userR := userRes {
@@ -180,6 +181,7 @@ func (cfg *apiConfig) create_user(w http.ResponseWriter, r *http.Request) {
         CreatedAt: user.CreatedAt.String(),
         UpdatedAt: user.UpdatedAt.String(),
         Email: user.Email,
+        IsChirpyRed: user.IsChirpyRed,
     }
 
     w.WriteHeader(201)
@@ -393,6 +395,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         Email string `json:"email"`
         Token string `json:"token"`
         Ref_Token string `json:"refresh_token"`
+        IsChirpyRed bool `json:"is_chirpy_red"`
     }
 
     userR := userRes {
@@ -402,14 +405,17 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
         Email: user.Email,
         Token: token,
         Ref_Token: r_token,
+        IsChirpyRed: user.IsChirpyRed,
     }
 
-    w.WriteHeader(200)
     encodedUserRes, err := json.Marshal(userR)
     if err != nil {
-        log.Printf("error marshalling user response: %v", err)
+        log.Printf("error marshalling user response: %v\n", err)
+        w.WriteHeader(500)
+        return
     }
     w.Write(encodedUserRes)
+    w.WriteHeader(200)
 }
 
 // check refresh token from db
@@ -720,6 +726,52 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
     w.WriteHeader(204)
 }
 
+// polka handler - upgrade user to chirpy red
+func (cfg *apiConfig) upgrade_user(w http.ResponseWriter, r *http.Request) {
+    r.Header.Set("Content-Type", "application/json")
+
+    type dataParams struct {
+        UserID string `json:"user_id"`
+    }
+
+    type upgradeParams struct {
+        Event   string  `json:"event"`
+        Data    dataParams  `json:"data"`
+    }
+
+    decoder := json.NewDecoder(r.Body)
+    params := upgradeParams{}
+    err := decoder.Decode(&params)
+    if err != nil {
+        log.Printf("Error while decoding params to upgrade user: %v\n", err)
+        w.WriteHeader(500)
+        return
+    }
+
+    if params.Event != "user.upgraded" {
+        w.WriteHeader(204)
+        return
+    }
+
+    id, err := uuid.Parse(params.Data.UserID)
+    if err != nil {
+        log.Print("Invalid User ID\n")
+        log.Printf("Couldn't parse user id (%v) while upgrading to chirpy red: %v\n", id, err)
+        w.WriteHeader(500)
+        return
+    }
+
+    err = cfg.dbQueries.UpgradeUser(r.Context(), id)
+    if err != nil {
+        log.Print("User Not Found\n")
+        log.Printf("Couldn't upgrade user (id: %v) to chirpy red: %v\n", id, err)
+        w.WriteHeader(404)
+        return
+    }
+    log.Printf(" - - Upgraded user (id: %v) to chirpy red\n", id)
+    w.WriteHeader(204)
+}
+
 func main() {
     godotenv.Load()
     dbURL := os.Getenv("DB_URL")
@@ -781,6 +833,9 @@ func main() {
 
     // delete specific chirp by id
     mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.delete_chirp_by_id)
+
+    // upgrade user to chirpy red
+    mux.HandleFunc("POST /api/polka/webhooks", apiCfg.upgrade_user)
 
     if err := server.ListenAndServe(); err != nil {
         fmt.Printf("error: %v", err)
