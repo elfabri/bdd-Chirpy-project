@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+    "sort"
 
 	"github.com/elfabri/bdd-Chirpy-project/internal/auth"
 	"github.com/elfabri/bdd-Chirpy-project/internal/database"
@@ -618,6 +619,8 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
 func (cfg *apiConfig) get_chirps(w http.ResponseWriter, r *http.Request) {
     // optional query "author_id"
     author_id := r.URL.Query().Get("author_id")
+    // optional query "sort"
+    order := r.URL.Query().Get("sort")
     var chirps []database.Chirp
     var err error
     if author_id != "" {
@@ -642,6 +645,13 @@ func (cfg *apiConfig) get_chirps(w http.ResponseWriter, r *http.Request) {
             w.WriteHeader(404)
             return
         }
+    }
+
+    // sort asc is default
+    if order == "desc" {
+        sort.Slice(chirps, func(i, j int) bool {
+            return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+        })
     }
 
     chirpData, err := json.Marshal(chirps)
