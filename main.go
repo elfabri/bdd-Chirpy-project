@@ -324,7 +324,7 @@ func (cfg *apiConfig) login_user(w http.ResponseWriter, r *http.Request) {
     }
 
     // user lookup
-    user, err := cfg.dbQueries.ShowUserByEmail(r.Context(), params.Email)
+    user, err := cfg.dbQueries.GetUserByEmail(r.Context(), params.Email)
     if err != nil {
         log.Printf("Error while searching user with email: %s, error %v\n", params.Email, err)
         w.WriteHeader(401)
@@ -614,10 +614,10 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
     w.Write(chirpData)
 }
 
-// show all chirps ordered by created_at
-func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
+// get all chirps ordered by created_at
+func (cfg *apiConfig) get_chirps(w http.ResponseWriter, r *http.Request) {
 
-    chirps, err := cfg.dbQueries.ShowChirp( r.Context() )
+    chirps, err := cfg.dbQueries.GetChirps( r.Context() )
 
     chirpData, err := json.Marshal(chirps)
     if err != nil {
@@ -629,8 +629,8 @@ func (cfg *apiConfig) show_chirps(w http.ResponseWriter, r *http.Request) {
     w.Write(chirpData)
 }
 
-// show specific chirp
-func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
+// get specific chirp searched by chirp_id
+func (cfg *apiConfig) get_chirp_by_id(w http.ResponseWriter, r *http.Request) {
     chirpID := r.PathValue("chirpID")
 
     if chirpID[0:2] == "${" && os.Getenv("PLATFORM") == "dev" {
@@ -646,7 +646,7 @@ func (cfg *apiConfig) show_chirp_by_id(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
+    chirp, err := cfg.dbQueries.GetChirpByID( r.Context(), chirpUUID )
     if err != nil {
         log.Printf("Error searching for chirp: %v\n", err)
         w.WriteHeader(404)
@@ -703,7 +703,7 @@ func (cfg *apiConfig) delete_chirp_by_id(w http.ResponseWriter, r *http.Request)
         }
     }
 
-    chirp, err := cfg.dbQueries.ShowChirpByID( r.Context(), chirpUUID )
+    chirp, err := cfg.dbQueries.GetChirpByID( r.Context(), chirpUUID )
     if err != nil {
         log.Printf("Error searching for chirp: %v\n", err)
         w.WriteHeader(404)
@@ -840,11 +840,11 @@ func main() {
     // create chirps
     mux.HandleFunc("POST /api/chirps", apiCfg.create_chirp)
 
-    // show all chirps
-    mux.HandleFunc("GET /api/chirps", apiCfg.show_chirps)
+    // get all chirps
+    mux.HandleFunc("GET /api/chirps", apiCfg.get_chirps)
 
-    // show specific chirp by id
-    mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.show_chirp_by_id)
+    // get specific chirp by id
+    mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.get_chirp_by_id)
 
     // delete specific chirp by id
     mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.delete_chirp_by_id)
