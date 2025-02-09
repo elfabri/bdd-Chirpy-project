@@ -616,12 +616,39 @@ func (cfg *apiConfig) create_chirp(w http.ResponseWriter, r *http.Request) {
 
 // get all chirps ordered by created_at
 func (cfg *apiConfig) get_chirps(w http.ResponseWriter, r *http.Request) {
+    // optional query "author_id"
+    author_id := r.URL.Query().Get("author_id")
+    var chirps []database.Chirp
+    var err error
+    if author_id != "" {
+        user_id, err := uuid.Parse(author_id)
+        if err != nil {
+            log.Printf("Invalid author_id: %v\n", err)
+            w.WriteHeader(404)
+            return
+        }
 
-    chirps, err := cfg.dbQueries.GetChirps( r.Context() )
+        chirps, err = cfg.dbQueries.GetChirpsFromUser( r.Context(), user_id )
+        if err != nil {
+            log.Printf("author_id not found: %v\n", err)
+            w.WriteHeader(404)
+            return
+        }
+
+    } else {
+        chirps, err = cfg.dbQueries.GetChirps( r.Context() )
+        if err != nil {
+            log.Printf("Error while getting chirps: %v\n", err)
+            w.WriteHeader(404)
+            return
+        }
+    }
 
     chirpData, err := json.Marshal(chirps)
     if err != nil {
         log.Printf("Error marshalling chirp data: %v\n", err)
+        w.WriteHeader(500)
+        return
     }
 
     w.Header().Set("Content-Type", "application/json")
