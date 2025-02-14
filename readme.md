@@ -123,5 +123,6 @@ curl -X GET -H "Content-Type: application/json" http://localhost:8080/api/chirps
 ```
 
 ## Conclusions
-I really enjoyed this course. I might try some front-end work, but I will most likely continue to the next course, which is about CDNs.
+
+I really enjoyed this course. I might try to add some front-end work, but I will most likely continue to the [next course](https://www.boot.dev/courses/learn-file-servers-s3-cloudfront-golang), which is about CDNs.
 
